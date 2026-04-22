@@ -1,18 +1,28 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  addWeighIn,
-  calculateEarnedCentsForGrams,
-  findWorker,
+  getWorker,
+  getLatestRate,
   getWorkerSummary,
-  gramsToKg,
-  kgToGrams,
-} from "../data/store";
+  insertWeighIn,
+} from "../db/queries";
 
 const createWeighInBodySchema = z.object({
   workerNumber: z.string().trim().min(1, "workerNumber is required"),
   weightKg: z.number().positive("weightKg must be greater than 0"),
 });
+
+function kgToGrams(kg: number): number {
+  return Math.round(kg * 1000);
+}
+
+function gramsToKg(grams: number): number {
+  return Number((grams / 1000).toFixed(3));
+}
+
+function calculateEarnedCentsForGrams(grams: number, rateCentsPerKg: number): number {
+  return Math.round((grams / 1000) * rateCentsPerKg);
+}
 
 export async function weighInRoutes(app: FastifyInstance) {
   app.post("/weigh-ins", async (request, reply) => {
@@ -26,30 +36,49 @@ export async function weighInRoutes(app: FastifyInstance) {
     }
 
     const { workerNumber, weightKg } = parsedBody.data;
-    const worker = findWorker(workerNumber);
+    const worker = getWorker(workerNumber);
 
     if (!worker) {
       return reply.code(404).send({ message: "Worker not found" });
     }
 
+    const latestRate = getLatestRate();
+
+    if (!latestRate) {
+      return reply.code(500).send({ message: "No pay rate configured" });
+    }
+
     const weightGrams = kgToGrams(weightKg);
 
-    const weighIn = addWeighIn({
+    const weighIn = insertWeighIn({
       workerNumber,
       weightGrams,
+      rateCentsPerKgSnapshot: latestRate.cents_per_kg,
+      currencyCodeSnapshot: latestRate.currency_code,
     });
 
     const workerSummary = getWorkerSummary(workerNumber);
+    const outstandingCents = Math.max(
+      workerSummary.totalEarnedCents - workerSummary.totalPaidCents,
+      0,
+    );
 
     return reply.code(201).send({
       weighIn: {
         id: weighIn.id,
-        workerNumber: weighIn.workerNumber,
-        weightKg: gramsToKg(weighIn.weightGrams),
-        earnedCents: calculateEarnedCentsForGrams(weighIn.weightGrams),
-        recordedAt: weighIn.recordedAt,
+        workerNumber: weighIn.worker_number,
+        weightKg: gramsToKg(weighIn.weight_grams),
+        earnedCents: calculateEarnedCentsForGrams(
+          weighIn.weight_grams,
+          weighIn.rate_cents_per_kg_snapshot,
+        ),
+        currencyCode: weighIn.currency_code_snapshot,
+        recordedAt: weighIn.recorded_at,
       },
-      workerSummary,
+      workerSummary: {
+        ...workerSummary,
+        outstandingCents,
+      },
     });
   });
 }
