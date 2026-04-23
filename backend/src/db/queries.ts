@@ -60,6 +60,33 @@ export function getWorker(workerNumber: string): WorkerRow | undefined {
   return getWorkerStatement.get(workerNumber) as WorkerRow | undefined;
 }
 
+const ensureWorkerStatement = db.prepare(`
+  INSERT INTO workers (
+    worker_number,
+    name,
+    active
+  ) VALUES (
+    @workerNumber,
+    @name,
+    1
+  )
+  ON CONFLICT(worker_number) DO NOTHING
+`);
+
+export function ensureWorker(workerNumber: string): WorkerRow {
+  ensureWorkerStatement.run({
+    workerNumber,
+    name: `Worker ${workerNumber}`,
+  });
+
+  const worker = getWorker(workerNumber);
+  if (!worker) {
+    throw new Error("Failed to create or load worker");
+  }
+
+  return worker;
+}
+
 // Rate query functions
 const getLatestRateStatement = db.prepare(`
   SELECT
