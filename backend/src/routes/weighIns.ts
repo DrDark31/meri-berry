@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  getWorker,
+  ensureWorker,
   getLatestRate,
   getWorkerSummary,
   insertWeighIn,
@@ -36,11 +36,7 @@ export async function weighInRoutes(app: FastifyInstance) {
     }
 
     const { workerNumber, weightKg } = parsedBody.data;
-    const worker = getWorker(workerNumber);
-
-    if (!worker) {
-      return reply.code(404).send({ message: "Worker not found" });
-    }
+    ensureWorker(workerNumber);
 
     const latestRate = getLatestRate();
 
